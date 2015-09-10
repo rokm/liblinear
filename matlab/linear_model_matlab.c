@@ -12,7 +12,7 @@ typedef int mwIndex;
 
 #define Malloc(type,n) (type *)malloc((n)*sizeof(type))
 
-#define NUM_OF_RETURN_FIELD 6
+#define NUM_OF_RETURN_FIELD 7
 
 static const char *field_names[] = {
 	"Parameters",
@@ -21,6 +21,7 @@ static const char *field_names[] = {
 	"bias",
 	"Label",
 	"w",
+	"alpha"
 };
 
 const char *model_to_matlab_structure(mxArray *plhs[], struct model *model_)
@@ -89,6 +90,18 @@ const char *model_to_matlab_structure(mxArray *plhs[], struct model *model_)
 		ptr[i]=model_->w[i];
 	out_id++;
 
+	// alpha
+	if(model_->alpha)
+	{
+		rhs[out_id] = mxCreateDoubleMatrix(nr_w, model_->nr_alpha, mxREAL);
+		ptr = mxGetPr(rhs[out_id]);
+		for(i = 0; i < model_->nr_alpha*nr_w; i++)
+			ptr[i] = model_->alpha[i];
+	}
+	else
+		rhs[out_id] = mxCreateDoubleMatrix(0, 0, mxREAL);
+	out_id++;
+
 	/* Create a struct matrix contains NUM_OF_RETURN_FIELD fields */
 	return_model = mxCreateStructMatrix(1, 1, NUM_OF_RETURN_FIELD, field_names);
 
@@ -122,6 +135,7 @@ const char *matlab_matrix_to_model(struct model *model_, const mxArray *matlab_s
 	model_->nr_feature=0;
 	model_->w=NULL;
 	model_->label=NULL;
+	model_->alpha=NULL;
 
 	// Parameters
 	ptr = mxGetPr(rhs[id]);

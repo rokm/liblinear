@@ -459,7 +459,7 @@ class Solver_MCSVM_CS
 	public:
 		Solver_MCSVM_CS(const problem *prob, int nr_class, double *C, double eps=0.1, int max_iter=100000);
 		~Solver_MCSVM_CS();
-		void Solve(double *w);
+		void Solve(double *w, double *alpha);
 	private:
 		void solve_sub_problem(double A_i, int yi, double C_yi, int active_i, double *alpha_new);
 		bool be_shrunk(int i, int m, int yi, double alpha_i, double minG);
@@ -534,11 +534,11 @@ bool Solver_MCSVM_CS::be_shrunk(int i, int m, int yi, double alpha_i, double min
 	return false;
 }
 
-void Solver_MCSVM_CS::Solve(double *w)
+void Solver_MCSVM_CS::Solve(double *w, double *alpha)
 {
 	int i, m, s;
 	int iter = 0;
-	double *alpha =  new double[l*nr_class];
+	//double *alpha =  new double[l*nr_class];
 	double *alpha_new = new double[nr_class];
 	int *index = new int[l];
 	double *QD = new double[l];
@@ -735,7 +735,7 @@ void Solver_MCSVM_CS::Solve(double *w)
 	info("Objective value = %lf\n",v);
 	info("nSV = %d\n",nSV);
 
-	delete [] alpha;
+	//delete [] alpha;
 	delete [] alpha_new;
 	delete [] index;
 	delete [] QD;
@@ -777,7 +777,7 @@ void Solver_MCSVM_CS::Solve(double *w)
 // To support weights for instances, use GETI(i) (i)
 
 static void solve_l2r_l1l2_svc(
-	const problem *prob, double *w, double eps,
+	const problem *prob, double *w, double *alpha, double eps,
 	double Cp, double Cn, int solver_type)
 {
 	int l = prob->l;
@@ -787,7 +787,7 @@ static void solve_l2r_l1l2_svc(
 	double *QD = new double[l];
 	int max_iter = 1000;
 	int *index = new int[l];
-	double *alpha = new double[l];
+	//double *alpha = new double[l];
 	schar *y = new schar[l];
 	int active_size = l;
 
@@ -959,8 +959,12 @@ static void solve_l2r_l1l2_svc(
 	info("Objective value = %lf\n",v/2);
 	info("nSV = %d\n",nSV);
 
+	// currently, alpha values are unsigned; so multiply them with labels...
+	for(i = 0; i<l; i++)
+		alpha[i] *= y[i];
+
 	delete [] QD;
-	delete [] alpha;
+	//delete [] alpha;
 	delete [] y;
 	delete [] index;
 }
@@ -2179,7 +2183,7 @@ static void group_classes(const problem *prob, int *nr_class_ret, int **label_re
 	free(data_label);
 }
 
-static void train_one(const problem *prob, const parameter *param, double *w, double Cp, double Cn)
+static void train_one(const problem *prob, const parameter *param, double *w, double *alpha, double Cp, double Cn)
 {
 	//inner and outer tolerances for TRON
 	double eps = param->eps;
@@ -2235,10 +2239,10 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 			break;
 		}
 		case L2R_L2LOSS_SVC_DUAL:
-			solve_l2r_l1l2_svc(prob, w, eps, Cp, Cn, L2R_L2LOSS_SVC_DUAL);
+			solve_l2r_l1l2_svc(prob, w, alpha, eps, Cp, Cn, L2R_L2LOSS_SVC_DUAL);
 			break;
 		case L2R_L1LOSS_SVC_DUAL:
-			solve_l2r_l1l2_svc(prob, w, eps, Cp, Cn, L2R_L1LOSS_SVC_DUAL);
+			solve_l2r_l1l2_svc(prob, w, alpha, eps, Cp, Cn, L2R_L1LOSS_SVC_DUAL);
 			break;
 		case L1R_L2LOSS_SVC:
 		{
@@ -2339,6 +2343,8 @@ model* train(const problem *prob, const parameter *param)
 		model_->nr_feature=n;
 	model_->param = *param;
 	model_->bias = prob->bias;
+	model_->alpha = NULL;
+	model_->nr_alpha = l;
 
 	if(check_regression_model(model_))
 	{
@@ -2347,7 +2353,7 @@ model* train(const problem *prob, const parameter *param)
 			model_->w[i] = 0;
 		model_->nr_class = 2;
 		model_->label = NULL;
-		train_one(prob, param, model_->w, 0, 0);
+		train_one(prob, param, model_->w, NULL, 0, 0);
 	}
 	else
 	{
@@ -2399,17 +2405,19 @@ model* train(const problem *prob, const parameter *param)
 		if(param->solver_type == MCSVM_CS)
 		{
 			model_->w=Malloc(double, n*nr_class);
+			model_->alpha=Malloc(double, l*nr_class);
 			for(i=0;i<nr_class;i++)
 				for(j=start[i];j<start[i]+count[i];j++)
 					sub_prob.y[j] = i;
 			Solver_MCSVM_CS Solver(&sub_prob, nr_class, weighted_C, param->eps);
-			Solver.Solve(model_->w);
+			Solver.Solve(model_->w, model_->alpha);
 		}
 		else
 		{
 			if(nr_class == 2)
 			{
 				model_->w=Malloc(double, w_size);
+				model_->alpha=Malloc(double, l);
 
 				int e0 = start[0]+count[0];
 				k=0;
@@ -2425,12 +2433,14 @@ model* train(const problem *prob, const parameter *param)
 					for(i=0;i<w_size;i++)
 						model_->w[i] = 0;
 
-				train_one(&sub_prob, param, model_->w, weighted_C[0], weighted_C[1]);
+				train_one(&sub_prob, param, model_->w, model_->alpha, weighted_C[0], weighted_C[1]);
 			}
 			else
 			{
 				model_->w=Malloc(double, w_size*nr_class);
+				model_->alpha=Malloc(double, l*nr_class);
 				double *w=Malloc(double, w_size);
+				double *alpha=Malloc(double, l);
 				for(i=0;i<nr_class;i++)
 				{
 					int si = start[i];
@@ -2451,12 +2461,15 @@ model* train(const problem *prob, const parameter *param)
 						for(j=0;j<w_size;j++)
 							w[j] = 0;
 
-					train_one(&sub_prob, param, w, weighted_C[i], param->C);
+					train_one(&sub_prob, param, w, alpha, weighted_C[i], param->C);
 
 					for(int j=0;j<w_size;j++)
 						model_->w[j*nr_class+i] = w[j];
+					for(int j=0;j<l;j++)
+						model_->alpha[j*nr_class+i] = alpha[j];
 				}
 				free(w);
+				free(alpha);
 			}
 
 		}
@@ -2853,6 +2866,7 @@ struct model *load_model(const char *model_file_name)
 	parameter& param = model_->param;
 
 	model_->label = NULL;
+	model_->alpha = NULL;
 
 	char *old_locale = setlocale(LC_ALL, NULL);
 	if (old_locale)
@@ -3024,6 +3038,8 @@ void free_model_content(struct model *model_ptr)
 		free(model_ptr->w);
 	if(model_ptr->label != NULL)
 		free(model_ptr->label);
+	if(model_ptr->alpha != NULL)
+		free(model_ptr->alpha);
 }
 
 void free_and_destroy_model(struct model **model_ptr_ptr)

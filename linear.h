@@ -43,6 +43,9 @@ struct model
 	double *w;
 	int *label;		/* label of each class */
 	double bias;
+
+	int nr_alpha;		/* number of alpha values per class (= number of training samples) */
+	double *alpha;		/* support vector indicator variables; available only with certain dual solvers! */
 };
 
 struct model* train(const struct problem *prob, const struct parameter *param);
