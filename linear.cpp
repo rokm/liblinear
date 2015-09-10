@@ -2325,6 +2325,29 @@ static double calc_start_C(const problem *prob, const parameter *param)
 	return pow( 2, floor(log(min_C) / log(2.0)) );
 }
 
+// Ungroup the alpha coefficients so that their order corresponds to
+// that of the original training samples
+void ungroup_alphas (model *model_, const int *perm)
+{
+	int nr_class;
+	int nr_alpha = model_->nr_alpha; // Number of samples
+	double *new_alpha;
+
+	if(model_->nr_class==2 && model_->param.solver_type != MCSVM_CS)
+		nr_class=1;
+	else
+		nr_class=model_->nr_class;
+
+	new_alpha = Malloc(double, nr_class*nr_alpha);
+
+	for(int j=0;j<nr_alpha;j++)
+		for(int i=0;i<nr_class;i++)
+			new_alpha[perm[j]*nr_class+i] = model_->alpha[j*nr_class+i];
+
+	// Swap the grouped alphas with ungrouped ones
+	free(model_->alpha);
+	model_->alpha = new_alpha;
+}
 
 //
 // Interface functions
@@ -2473,6 +2496,11 @@ model* train(const problem *prob, const parameter *param)
 			}
 
 		}
+
+		// The alpha indicator values correspond to the grouped training
+		// samples; perform ungrouping to have them correspond to the
+		// original input samples
+		ungroup_alphas(model_, perm);
 
 		free(x);
 		free(label);
